@@ -1,0 +1,8 @@
+This program contains following files
+
+test.txt : test file for blender, in every line, userid itemid
+ret.tar.gz : you can extract it, and get three prediction files for github contest
+algo.txt : this is the config file for blender, in every line, it is the filename of the prediction file
+blender.cpp : source file of blender
+
+if you want to use this program, you can run ./install and then run ./blender
