@@ -1,7 +1,9 @@
+#include <iostream>
 #include <vector>
 #include <map>
 #include <string>
 #include <fstream>
+#include <sstream>
 using namespace std;
 
 typedef map< int, float > ItemMap;
@@ -13,32 +15,36 @@ bool GreaterSecond(const pair<A, B> & a, const pair<A,B> & b){
      return a.second > b.second;
 }
 
-void combine(const vector< ItemMap > & reco, const vector< float > & weight, ItemMap & ret){
-     int K = reco.size();
-     float sum = 0;
-     for(int k = 0; k < K; ++k){
-          sum += weight[k];
-          for(ItemMap::const_iterator i = reco[k].begin(); i != reco[k].end(); ++i){
-               if(ret.find(i->first) == ret.end()) ret[i->first] = 0;
-               ret[i->first].likeness += weight[k] * i->second;
-          }
-     }
-     for(ItemMap::iterator i = ret.begin(); i != ret.end(); ++i)
-          i->second /= sum;
+float rand01(){
+     return (float)(rand() % 1000000) / 1000000;
 }
 
-void combine(const vector< ItemMap > & reco, const vector< float > & weight, ItemList & ret, int N){
-     ItemMap retmap;
-     combine(reco, weight, retmap);
-     ret = ItemList(retmap.begin(), retmap.end());
-     sort(ret.begin(), ret.end(), GreaterSecond<int,float>);
+void combine(const vector< UserPreferenceList > & reco, const vector<float> & weight, UserPreferenceList & ret, int N){
+     float sum_weight = 0;
+     for(int i = 0; i < weight.size(); ++i) sum_weight += weight[i];
+     for(UserPreferenceList::const_iterator u = reco[0].begin(); u != reco[0].end(); ++u){
+          ItemMap ru;
+          for(int k = 0; k < reco.size(); ++k){
+               for(ItemList::const_iterator i = u->second.begin(); i != u->second.end(); ++i){
+                    if(ru.find(i->first) == ru.end()) ru[i->first] = 0;
+                    ru[i->first] += weight[k] * i->second;
+               }
+          }
+          ItemList vru(ru.begin(), ru.end());
+          sort(vru.begin(), vru.end(), GreaterSecond<int,float>);
+          if(ru.size() > N)
+               ret[u->first] = ItemList(vru.begin(), vru.begin() + N);
+          else ret[u->first] = vru;
+     }
 }
 
 float recall(const UserPreferenceList & reco, const UserPreferenceList & test){
      float ret = 0;
      float n = 0;
      for(UserPreferenceList::const_iterator u = test.begin(); u != test.end(); ++u){
-          map<int,float> ru = map<int,float>(reco[u->first].begin(), reco[u->first].end());
+          UserPreferenceList::const_iterator pu = reco.find(u->first);
+          if(pu == reco.end()) continue;
+          map<int,float> ru(pu->second.begin(), pu->second.end());
           for(int i = 0; i < u->second.size(); ++i){
                if(ru.find(u->second[i].first) != ru.end()){
                     ++ret;
@@ -47,4 +53,80 @@ float recall(const UserPreferenceList & reco, const UserPreferenceList & test){
           n += (float)(u->second.size());
      }
      return ret / n;
+}
+
+void learningWeight(const vector< UserPreferenceList > & reco, vector< float > & weight, const UserPreferenceList & test, int N){
+     int K = reco.size();
+     weight = vector<float>(K, 1);
+     srand(time(0));
+     for(int step = 0; step < 100; ++step){
+          int i = rand() % K; //select the weight of algo we should change
+          float w0 = weight[i];
+          UserPreferenceList combine_ret;
+          combine(reco, weight, combine_ret, N);
+          float r0 = recall(combine_ret, test);
+          weight[i] += 0.1 * (rand01() - 0.5);// change the weight of algo i
+          combine_ret.clear();
+          combine(reco, weight, combine_ret, N);
+          float r1 = recall(combine_ret, test);
+          if(r1 < r0){ //if changing weight can not improve result, using previous weight
+               weight[i] = w0;
+          }
+     }
+}
+
+void loadUserPreferenceListBySimpleFormat(const char * file, UserPreferenceList & reco){
+     //u1 i1 p1 i2 p2 ...
+     //u2 i1 p1 i2 p2 ...
+     ifstream in(file);
+     string line;
+     while(getline(in,line)){
+          istringstream iss(line);
+          int uid, iid;
+          float preference;
+          iss >> uid; //read userid
+          while(iss >> iid >> preference){ //read (itemid,preference) pair
+               reco[uid].push_back(make_pair<int,float>(iid, preference));
+          }
+     }
+     in.close();
+}
+
+void loadTestSet(const char * file, UserPreferenceList & test){
+     ifstream in(file);
+     string line;
+     while(getline(in,line)){
+          istringstream iss(line);
+          int uid, iid;
+          iss >> uid; //read userid
+          while(iss >> iid){
+               test[uid].push_back(make_pair<int,float>(iid, 1));
+          }
+     }
+     in.close();
+}
+
+void loadUserPreferenceListByJSON(const char * file, UserPreferenceList & reco){
+     
+}
+
+int main(int argc, char ** argv){
+     ifstream in("algo.txt");
+     string line;
+     vector< UserPreferenceList > algos;
+     vector< string > algoname;
+     vector< float > weight;
+     while(getline(in,line)){
+          UserPreferenceList reco;
+          loadUserPreferenceListBySimpleFormat(line.c_str(), reco);
+          algos.push_back(reco);
+          algoname.push_back(line);
+     }
+     UserPreferenceList test;
+     loadTestSet("test.txt", test);
+     learningWeight(algos, weight, test, 10); // learning weight of top-10 recommendation
+     for(int i = 0; i < weight.size(); ++i){
+          cout << algoname[i] << "\t" << weight[i] << endl;
+     }
+     return 0;
 }
